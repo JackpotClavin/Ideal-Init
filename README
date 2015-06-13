@@ -1,8 +1,8 @@
 Ideal Init
 
-The point of this program is to allow people easily determine which system-
-calls must be made during their respective device's boot process in order to
-more-easily port custom ROMs to their devices.
+The point of this program is to allow people easily determine which init
+system-calls must be made during their respective device's boot process in
+order to more-easily port custom ROMs to their devices.
 
 I wrote this utility because Qualcomm's init implementation is very ugly and
 consists of multiple (and oftentimes useless) init*.rc files and shell scripts.
@@ -38,10 +38,10 @@ Instructions:
    which is the ramdisk, and one that is the kernel
 
 5. Extract the ramdisk, and make the necessary changes to your ramdisk's
-   init.rc file
+   init.rc file from 'required_patches/init_rc.diff'
 
-6. Compile the Android userspace program called 'prop_watch', and copy that
-   binary to your stock device's ramdisk under /sbin/prop_watch
+6. Copy the prop_watch binary from the 'bin' folder to your stock ramdisk under
+   /sbin/prop_watch
 
 7. Now that you have edited your stock ramdisk's init.rc file and copied
    prop_watch to your device's stock ramdisk, remake your ramdisk from the
@@ -52,12 +52,12 @@ Instructions:
 
 9. Flash your boot.img to your device, and reboot
 
-10. After your device completely booted, pull your kernel logs with something
-    like: 'adb shell dmesg >> /home/user/syscalls.txt'
+10. After your device has completely booted, pull your kernel logs with
+    something like: 'adb shell dmesg >> /home/user/syscalls.txt'
 
 11. The file under /home/user/syscalls.txt has all of your kernel's dmesg logs
     as well as the logged system calls made by your init scripts, now we must
-    extract the logged system calls with something like:
+    extract JUST the logged system calls with something like:
     'strings /home/user/syscalls.txt | grep II: >> /home/user/JUST_II_DATA.txt'
 
 12. Copy the file called 'JUST_II_DATA.txt' to the directory this file is in

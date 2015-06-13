@@ -53,6 +53,9 @@ std::unordered_set<std::string> taken_symlinks;
 
 std::string services_list;
 
+// this function reads in the default ramdisk's system calls, and parses them
+// so that they are always delimited by a single space, and compatible with the
+// information we will use later in the program.
 std::string standardize_string(std::string in, int syscall) {
 
     std::string ret;
@@ -95,6 +98,14 @@ std::string standardize_string(std::string in, int syscall) {
     return ret;
 }
 
+// this function takes input from your device's stock ramdisk. each time a file
+// is chmod'd or chown'd or written to, we pass it here to see if it's a hardlink.
+// we can use the readlink binary to see what the actual location of the file is.
+// '/sys/class/leds/button-backlight1/brightness' points to
+// '/sys/devices/leds-qpnp-e04fc000/leds/button-backlight1/brightness', so if we
+// get a syscall that performs some operation on the latter, use the former because
+// it's universal for each and every boot, whereas the latter may only work for this
+// boot because its name may be different for the next boot.
 void get_symlink_from_file(std::string file) {
 
     const std::string ADB_START = "adb shell su -c \"readlink -f";
@@ -284,6 +295,9 @@ std::vector<std::string> tokenize_to_vector(std::string in, int syscall) {
     return ret;
 }
 
+// opens our device's ramdisk files, and looks for the names of services that
+// match the input param. if it matches, add the entire service's definition to
+// the string, which will be printed out when done.
 void generate_services(std::string service_name) {
 
     std::ifstream input_file;
@@ -327,8 +341,11 @@ void generate_services(std::string service_name) {
                 if (service_vector.at(0).compare(SERVICE_START) != 0 || service_vector.at(1).compare(service_name))
                     continue;
 
+                // if the service is defined in the default init.rc files, skip it; it is not unique to our device.
                 if (default_init_registry.find(service_vector.at(0) + " " + service_vector.at(1)) != default_init_registry.end()) {
                     //std::cout << "default " << service_vector.at(0) << " " << service_vector.at(1) << std::endl;
+                    input_file.close();
+                    closedir(dir);
                     return;
                 }
 
@@ -357,6 +374,10 @@ void generate_services(std::string service_name) {
     closedir(dir);
 }
 
+// a varaidic function. whether our system call takes 4 params, or just two, it gets
+// passed here, and we pop them off and generate a string based on these system calls
+// then we check that string against the map generated when we parsed the default init
+// files.
 void generate_and_check(int syscall, int argc, ...) {
 
     int i;
@@ -384,14 +405,6 @@ void generate_and_check(int syscall, int argc, ...) {
             line += help;
         }
     }
-
-#if 0
-    std::cout << "line is: " << line << std::endl;
-
-    if (default_init_registry.find(line) != default_init_registry.end()) {
-        std::cout << "dupe found " << line << std::endl;
-    }
-#endif
 
     // if the system call is NOT a default init system call, print it. (otherwise it's a redundant system call)
     if (default_init_registry.find(line) == default_init_registry.end()) {
@@ -428,6 +441,7 @@ void generate_and_check(int syscall, int argc, ...) {
             std::cout << "    mount " << mount_args.at(2) + " " + mount_args.at(0) + " " + mount_args.at(1) + " ";
             // << " " << mount_args.at(3) << " " << mount_args.at(4) << std::endl;
 
+            // extract the mount flag information from the integer of the system call param
             for (i = 0; mount_flags[i].name; i++) {
                 if (flag & mount_flags[i].flag)
                     std::cout << mount_flags[i].name << " ";
@@ -443,6 +457,8 @@ void generate_and_check(int syscall, int argc, ...) {
     va_end(args);
 }
 
+// this looks through our symlink map for a match. it returns a universally-known symlink
+// rather than the specific location that may be different for each boot.
 std::string get_link_mate(std::string file) {
 
     //std::cout << "got " << file << std::endl;
@@ -466,6 +482,20 @@ std::string get_link_mate(std::string file) {
     return iter->second;
 }
 
+// there's a lot of logic going on with mkdir, chmod, and chown. this is because the
+// mkdir system call is broken up into a mkdir, a (possible) chmod, then a (possible)
+// chown. we must use static flags to pass information as to where we are in the mkdir
+// process for each invocation of this function, because:
+// MKDIR /persist-lg/property 771
+// CHMOD /persist-lg/property 771
+// CHOWN /persist-lg/property 1000 1001
+// must become 'mkdir /persist-lg/property 771 system radio'
+// once we find out that we're done_check function, which will convert the system call
+// we just reverse-engineered to a string, and see if the default init.rc does this
+// system call. if it does, we don't need it because it's redundant. if it's not done
+// in the default init scripts, it's unique to our device, and should be printed out
+// because our device will (probably) need that in order to boot or to have a service
+// work correctly.
 void parse_line(std::string in) {
 
     int syscall = get_syscall(in, true);
@@ -572,14 +602,21 @@ void parse_line(std::string in) {
                 generate_and_check(SYMLINK, 2, parts.at(0).c_str(), parts.at(1).c_str());
             break;
         case MOUNT:
+                // we will pass the entire mount argument to the generate_and_check function, even though
+                // we say it has only 3 arguments, the 4th will be used to generate the flags.
                 generate_and_check(MOUNT, 3, parts.at(2).c_str(), parts.at(0).c_str(), parts.at(1).c_str(), in.c_str());
             break;
         case SETRLIMIT:
                 generate_and_check(SETRLIMIT, 3, parts.at(0).c_str(), parts.at(1).c_str(), parts.at(2).c_str());
             break;
         case SETPROP:
+                // the setprop case has two purposes. this one here is to see if setprop was called by the default
+                // init scripts.
                 generate_and_check(SETPROP, 1, parts.at(0).c_str(), parts.at(1).c_str());
 
+                // the other case is that property set was 'init.svc.vold running'. we can use the information
+                // that a service has been set to running to add it to our init.<device>.rc file (if the service
+                // is not a default one defined in the default init.rc)
                 if (parts.at(0).find(II_SERVICE_DECLARED) != parts.at(0).npos && parts.at(1).compare(II_SERVICE_RUNNING) == 0) {
                     //std::cout << parts.at(0) << " " << parts.at(1) << std::endl;
                     generate_services(parts.at(0).substr(II_SERVICE_DECLARED.length()));
@@ -590,6 +627,27 @@ void parse_line(std::string in) {
     }
 }
 
+// this function iterates through your device's default init scripts
+// if the bool 'setprop' is true, generates a map of each instance in
+// which one of your device's init scripts set a property with setprop.
+// since setprop is not a system call, we must use a userspace program
+// called prop_watch, and spy on our system properties until one of them
+// has changed, then log it in the dmesg buffer. unfortunately, we have
+// no way of knowing whether one of the init scripts set the property,
+// or if some random binary or library set the program, because setprop
+// is not a system call. so we generate a whitelist of times setprop was
+// called by an init script; then when we process a setprop, we check it
+// against the map generated in this function to see if the setprop was
+// indeed called by an init script. if the bool 'setprop' is false, we
+// generate a map of files either written, chmod'd, or chown'd by the init
+// scripts, and see if they are symlinks. if they are symlinks, generate a
+// map of the link and actual location to which the link points to. this is
+// done because chown of:
+// /sys/devices/leds-qpnp-e04fc000/leds/button-backlight1/brightness
+// may not work because of how the virtual filesystem maps directories, but
+// generating this map of symlinks will tell us that:
+// /sys/class/leds/button-backlight1/brightness points to the actual file
+// above, so use the link because that is guarenteed to work for every boot.
 void generate_device_registry(bool setprop) {
 
     std::ifstream input_file;
