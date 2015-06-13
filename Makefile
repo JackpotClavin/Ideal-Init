@@ -6,10 +6,10 @@ SOURCE = ideal_init.cpp
 MODULE = ideal_init
 
 
-ideal_init: $(OBJECTS)
+ideal-init: $(OBJECTS)
 	$(CC) $(SOURCE) $(CFLAGS) -o $(MODULE)
 
-all: ideal_init
+all: ideal-init
 
 clean:
 	-rm -f $(MODULE)
