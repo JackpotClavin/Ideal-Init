@@ -1,0 +1,75 @@
+diff --git a/rootdir/init.rc b/rootdir/init.rc
+index 029d7de..4322e06 100644
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -14,6 +14,8 @@ import /init.cm.rc
+ 
+ 
+ on early-init
++    write /dev/ii "II: ON: early-init"
++    start prop-watch
+     # Set init and its forked children's oom_adj.
+     write /proc/1/oom_score_adj -1000
+ 
+@@ -33,6 +35,7 @@ on early-init
+     mkdir /mnt 0775 root system
+ 
+ on init
++    write /dev/ii "II: ON: init"
+     sysclktz 0
+ 
+     loglevel 3
+@@ -168,8 +171,18 @@ on load_all_props_action
+ on firmware_mounts_complete
+     rm /dev/.booting
+ 
++on early-fs
++    write /dev/ii "II: ON: early-fs"
++
++on fs
++    write /dev/ii "II: ON: fs"
++
++on early-boot
++    write /dev/ii "II: ON: early-boot"
++
+ # Mount filesystems and start core system services.
+ on late-init
++    write /dev/ii "II: ON: late-init"
+     trigger early-fs
+     trigger fs
+     trigger post-fs
+@@ -188,6 +201,7 @@ on late-init
+ 
+ 
+ on post-fs
++    write /dev/ii "II: ON: post-fs"
+     # once everything is setup, no need to modify /
+     mount rootfs rootfs / ro remount
+     # mount shared so changes propagate into child namespaces
+@@ -225,6 +239,7 @@ on post-fs
+     mkdir /cache/lost+found 0770 root root
+ 
+ on post-fs-data
++    write /dev/ii "II: ON: post-fs-data"
+     # We chown/chmod /data again so because mount is run as root + defaults
+     chown system system /data
+     chmod 0771 /data
+@@ -330,6 +345,7 @@ on post-fs-data
+     #setprop vold.post_fs_data_done 1
+ 
+ on boot
++    write /dev/ii "II: ON: boot"
+     # basic network init
+     ifup lo
+     hostname localhost
+@@ -552,6 +568,10 @@ service debuggerd /system/bin/debuggerd
+ service debuggerd64 /system/bin/debuggerd64
+     class main
+ 
++service prop-watch /sbin/prop_watch
++    class main
++    user root
++
+ service ril-daemon /system/bin/rild
+     class main
+     socket rild stream 660 root radio

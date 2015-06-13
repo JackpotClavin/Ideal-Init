@@ -1,0 +1,81 @@
+Ideal Init
+
+The point of this program is to allow people easily determine which system-
+calls must be made during their respective device's boot process in order to
+more-easily port custom ROMs to their devices.
+
+I wrote this utility because Qualcomm's init implementation is very ugly and
+consists of multiple (and oftentimes useless) init*.rc files and shell scripts.
+
+The first (and most important) part of this program is to make the necessary
+changes to the kernel to print which system calls are being made, so that they
+can be intercepeted and logged in the kernel's dmesg buffer. Then the user must
+dump their dmesg onto their computer and and run the program called ideal_init.
+This program will interpret the intercepted system calls and (hopefully)
+generate output which resembles a viable (and single) init.<device>.rc.
+
+The ideal_init program also filters out the intercepted system calls made by
+the init processes against the default init.rc scripts that are used for AOSP
+ROMs, (syscalls made by init.rc, init.trace.rc, etc) so that there is no
+duplicate** data that may cause adverse effects.
+
+A big part of the device's init bringup is when the init scripts set certain
+device properties. Because 'setprop' is not a system call, a secondary
+userspace program called 'prop_watch' had to be crafted from the Android
+toolbox's program called watchprops. This change was needed to spy on whether a
+script called 'setprop', and this process must be started from your device's
+init.rc right when it boots (the daemon should be placed in /sbin).
+
+Instructions:
+1. Revert your device back to 100% stock (and rooted of course)
+
+2. Make the necessary changes from 'required_patches/kernel.diff' to your
+   device's stock kernel source
+
+3. Now that you have made the changes to your kernel source, compile the kernel
+
+4. Extract your device's stock boot.img. This will likely create two files; one
+   which is the ramdisk, and one that is the kernel
+
+5. Extract the ramdisk, and make the necessary changes to your ramdisk's
+   init.rc file
+
+6. Compile the Android userspace program called 'prop_watch', and copy that
+   binary to your stock device's ramdisk under /sbin/prop_watch
+
+7. Now that you have edited your stock ramdisk's init.rc file and copied
+   prop_watch to your device's stock ramdisk, remake your ramdisk from the
+   extracted files
+
+8. Remake your boot.img, this time using your kernel compiled from step 3, and
+   your ramdisk with the necesssary changes from step 7
+
+9. Flash your boot.img to your device, and reboot
+
+10. After your device completely booted, pull your kernel logs with something
+    like: 'adb shell dmesg >> /home/user/syscalls.txt'
+
+11. The file under /home/user/syscalls.txt has all of your kernel's dmesg logs
+    as well as the logged system calls made by your init scripts, now we must
+    extract the logged system calls with something like:
+    'strings /home/user/syscalls.txt | grep II: >> /home/user/JUST_II_DATA.txt'
+
+12. Copy the file called 'JUST_II_DATA.txt' to the directory this file is in
+
+13. Compile the ideal_init program with 'make'
+
+14. Copy your device's init*.rc files to the directory called
+    'device_init_files'
+
+15. Copy any init shell scripts from /system/etc to 'device_init_files'
+
+16. Copy any init scripts from:
+    https://android.googlesource.com/platform/system/core/+/<release>/rootdir/
+    where <release> corresponds to whatever version of Android your stock dump
+    is
+
+17. Plug your phone into your computer, and make sure adb works
+
+18. Run the program ideal_init and it should print out a viable working
+    init.<device>.rc which is a fantastic starting point for porting ROMs
+    to your device

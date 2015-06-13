@@ -1,0 +1,354 @@
+diff --git a/drivers/staging/android/Kconfig b/drivers/staging/android/Kconfig
+index e120d0f..b1e87b5 100644
+--- a/drivers/staging/android/Kconfig
++++ b/drivers/staging/android/Kconfig
+@@ -100,6 +100,10 @@ config VIBRATOR_PM8941_HAPTIC
+ 	help
+ 	  This option enables support for the vibrator power control.
+ 
++config IDEAL_INIT
++	bool "Enables a system call interceptor to spy on device init bringup."
++	default n
++
+ endif # if ANDROID
+ 
+ endmenu
+diff --git a/drivers/staging/android/Makefile b/drivers/staging/android/Makefile
+index 8e18d4e..ba766936 100644
+--- a/drivers/staging/android/Makefile
++++ b/drivers/staging/android/Makefile
+@@ -10,4 +10,6 @@ obj-$(CONFIG_ANDROID_SWITCH)		+= switch/
+ obj-$(CONFIG_ANDROID_INTF_ALARM_DEV)	+= alarm-dev.o
+ obj-$(CONFIG_PERSISTENT_TRACER)		+= trace_persistent.o
+ 
++obj-$(CONFIG_IDEAL_INIT)		+= ideal_init.o
++
+ CFLAGS_REMOVE_trace_persistent.o = -pg
+diff --git a/drivers/staging/android/ideal_init.c b/drivers/staging/android/ideal_init.c
+new file mode 100644
+index 0000000..e465f4d
+--- /dev/null
++++ b/drivers/staging/android/ideal_init.c
+@@ -0,0 +1,60 @@
++/*
++ * ideal_init.c - Android /init system call interceptor
++ *
++ * Copyright (C) 2015 JackpotClavin <jonclavin@gmail.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with this program; if not, write to the Free Software
++ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/ideal_init.h>
++#include <linux/string.h>
++#include <linux/sched.h>
++
++const char *valid_programs[] = {
++	"chmod",
++	"chown",
++	"mkdir",
++	"ln",
++	NULL
++};
++
++bool is_current_program_valid(void) {
++
++	int i;
++
++	for (i = 0; valid_programs[i]; i++) {
++		if (!strcmp(valid_programs[i], current->comm))
++			return true;
++	}
++
++	return false;
++}
++
++bool is_calling_process_init(void) {
++
++	/* If (current process is init) OR (both parent processes are sh) OR (the
++	 * current process is sh with the parent being init).
++	 */
++
++	if (ii_start && (current->pid == 1 || !strcmp(current->comm, "init") ||
++		(!strcmp(current->real_parent->comm, "sh") && !strcmp(current->parent->comm, "sh") && is_current_program_valid()) ||
++		(!strcmp(current->real_parent->comm, "init") && !strcmp(current->parent->comm, "init") &&
++		!strcmp(current->comm, "sh")))) {
++
++		return true;
++	}
++
++	return false;
++}
+diff --git a/fs/namei.c b/fs/namei.c
+index a87e323..a8f3dd1 100644
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -38,6 +38,10 @@
+ #include "internal.h"
+ #include "mount.h"
+ 
++#ifdef CONFIG_IDEAL_INIT
++#include <linux/ideal_init.h>
++#endif
++
+ /* [Feb-1997 T. Schoebel-Theuer]
+  * Fundamental changes in the pathname lookup mechanisms (namei)
+  * were necessary because of omirr.  The reason is that omirr needs
+@@ -2666,6 +2670,11 @@ SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
+ 	struct path path;
+ 	int error;
+ 
++#ifdef CONFIG_IDEAL_INIT
++	if (pathname && is_calling_process_init()) {
++		printk("II: MKDIR %s %o\n", pathname, mode);
++	}
++#endif
+ 	dentry = user_path_create(dfd, pathname, &path, 1);
+ 	if (IS_ERR(dentry))
+ 		return PTR_ERR(dentry);
+@@ -2949,6 +2958,11 @@ SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
+ 	struct dentry *dentry;
+ 	struct path path;
+ 
++#ifdef CONFIG_IDEAL_INIT
++	if (oldname && newname && is_calling_process_init())
++		printk("II: SYMLINK %s %s\n", oldname, newname);
++#endif
++
+ 	from = getname(oldname);
+ 	if (IS_ERR(from))
+ 		return PTR_ERR(from);
+diff --git a/fs/namespace.c b/fs/namespace.c
+index e608199..2479ac3 100644
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -23,6 +23,10 @@
+ #include "pnode.h"
+ #include "internal.h"
+ 
++#ifdef CONFIG_IDEAL_INIT
++#include <linux/ideal_init.h>
++#endif
++
+ #define HASH_SHIFT ilog2(PAGE_SIZE / sizeof(struct list_head))
+ #define HASH_SIZE (1UL << HASH_SHIFT)
+ 
+@@ -2366,6 +2370,11 @@ SYSCALL_DEFINE5(mount, char __user *, dev_name, char __user *, dir_name,
+ 	char *kernel_dev;
+ 	unsigned long data_page;
+ 
++#ifdef CONFIG_IDEAL_INIT
++	if (is_calling_process_init())
++		printk("II: MOUNT %s %s %s %ld %s\n", dev_name, dir_name, type, flags, (char *)data);
++#endif
++
+ 	ret = copy_mount_string(type, &kernel_type);
+ 	if (ret < 0)
+ 		goto out_type;
+diff --git a/fs/open.c b/fs/open.c
+index 28514ab..4cf3530 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -33,6 +33,10 @@
+ 
+ #include "internal.h"
+ 
++#ifdef CONFIG_IDEAL_INIT
++#include <linux/ideal_init.h>
++#endif
++
+ /* LGE_CHANGE_S
+  *
+  * do read/mmap profiling during booting
+@@ -461,6 +465,18 @@ static int chmod_common(struct path *path, umode_t mode)
+ 	struct inode *inode = path->dentry->d_inode;
+ 	struct iattr newattrs;
+ 	int error;
++#ifdef CONFIG_IDEAL_INIT
++	const struct path *chmod_path = path;
++	char *filename;
++	char *buffer;
++
++	buffer = (char *)__get_free_page(GFP_KERNEL);
++	filename = d_path(chmod_path, buffer, PAGE_SIZE);
++	if (is_calling_process_init()) {
++		printk("II: CHMOD %s %o\n", filename, mode);
++	}
++	free_page((unsigned long)buffer);
++#endif
+ 
+ 	error = mnt_want_write(path->mnt);
+ 	if (error)
+@@ -515,7 +531,18 @@ static int chown_common(struct path *path, uid_t user, gid_t group)
+ 	struct inode *inode = path->dentry->d_inode;
+ 	int error;
+ 	struct iattr newattrs;
+-
++#ifdef CONFIG_IDEAL_INIT
++	const struct path *chown_path = path;
++	char *filename;
++	char *buffer;
++
++	buffer = (char *)__get_free_page(GFP_KERNEL);
++	filename = d_path(chown_path, buffer, PAGE_SIZE);
++	if (filename && is_calling_process_init()) {
++		printk("II: CHOWN %s %d %d\n", filename, user, group);
++	}
++	free_page((unsigned long)buffer);
++#endif
+ 	newattrs.ia_valid =  ATTR_CTIME;
+ 	if (user != (uid_t) -1) {
+ 		newattrs.ia_valid |= ATTR_UID;
+diff --git a/fs/read_write.c b/fs/read_write.c
+index ffc99d2..aa468ff 100644
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -20,6 +20,10 @@
+ #include <asm/uaccess.h>
+ #include <asm/unistd.h>
+ 
++#ifdef CONFIG_IDEAL_INIT
++#include <linux/ideal_init.h>
++#endif
++
+ const struct file_operations generic_ro_fops = {
+ 	.llseek		= generic_file_llseek,
+ 	.read		= do_sync_read,
+@@ -474,14 +478,61 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_IDEAL_INIT
++int ii_start = 0;
++#endif
++
+ SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
+ 		size_t, count)
+ {
+ 	struct file *file;
+ 	ssize_t ret = -EBADF;
+ 	int fput_needed;
++#ifdef CONFIG_IDEAL_INIT
++	char *buffer;
++	char *filename;
++	const struct path *file_path;
++	int i;
++	const char *forbidden[] = {
++		"/proc/1",
++		"selinux",
++		".temp.",
++		"(deleted)",
++		"socket:",
++		"pipe:",
++		"/dev/null",
++		"/dev/urandom",
++		"/attr/",
++		"/proc/sys/kernel/domainname",
++		"/proc/sys/kernel/hostname",
++		NULL
++	};
++
++	buffer = (char *)__get_free_page(GFP_KERNEL);
++#endif
+ 
+ 	file = fget_light(fd, &fput_needed);
++
++#ifdef CONFIG_IDEAL_INIT
++	if (file && (current->pid == 1 || is_calling_process_init())) {
++		file_path = &file->f_path;
++		filename = d_path(file_path, buffer, PAGE_SIZE);
++		if (filename && buf && strnlen(buf, II_RW_BUF_LEN) < II_RW_BUF_LEN) {
++			if (strstr(buf, "early-init"))
++				ii_start = 1;
++			if (!ii_start)
++				goto finish;
++			for (i = 0; forbidden[i]; i++) {
++				if (strstr(filename, forbidden[i]) || strstr(buf, forbidden[i]))
++					goto finish;
++			}
++			if (ii_start)
++				printk("II: WRITE %s %s\n", filename, buf);
++		}
++	}
++finish:
++	free_page((unsigned long)buffer);
++#endif
+ 	if (file) {
+ 		loff_t pos = file_pos_read(file);
+ 		ret = vfs_write(file, buf, count, &pos);
+diff --git a/include/linux/ideal_init.h b/include/linux/ideal_init.h
+new file mode 100644
+index 0000000..79c6a2c
+--- /dev/null
++++ b/include/linux/ideal_init.h
+@@ -0,0 +1,32 @@
++/*
++ * ideal_init.h - Android /init system call interceptor
++ *
++ * Copyright (C) 2015 JackpotClavin <jonclavin@gmail.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with this program; if not, write to the Free Software
++ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef _LINUX_IDEAL_INIT_H
++#define _LINUX_IDEAL_INIT_H
++
++#include <linux/types.h>
++
++#define II_RW_BUF_LEN 64
++
++extern int ii_start;
++
++bool is_calling_process_init(void);
++
++#endif
+diff --git a/kernel/sys.c b/kernel/sys.c
+index 2f95158..2ac30e4 100644
+--- a/kernel/sys.c
++++ b/kernel/sys.c
+@@ -57,6 +57,10 @@
+ #include <asm/io.h>
+ #include <asm/unistd.h>
+ 
++#ifdef CONFIG_IDEAL_INIT
++#include <linux/ideal_init.h>
++#endif
++
+ #ifndef SET_UNALIGN_CTL
+ # define SET_UNALIGN_CTL(a,b)	(-EINVAL)
+ #endif
+@@ -1563,6 +1567,11 @@ SYSCALL_DEFINE2(setrlimit, unsigned int, resource, struct rlimit __user *, rlim)
+ {
+ 	struct rlimit new_rlim;
+ 
++#ifdef CONFIG_IDEAL_INIT
++	if (is_calling_process_init())
++		printk("II: SETRLIMIT %d %lu %lu\n", resource, rlim->rlim_cur, rlim->rlim_max);
++#endif
++
+ 	if (copy_from_user(&new_rlim, rlim, sizeof(*rlim)))
+ 		return -EFAULT;
+ 	return do_prlimit(current, resource, &new_rlim, NULL);
