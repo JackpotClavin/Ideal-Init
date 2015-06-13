@@ -30,7 +30,7 @@ Instructions:
 1. Revert your device back to 100% stock (and rooted of course)
 
 2. Make the necessary changes from 'required_patches/kernel.diff' to your
-   device's stock kernel source
+   device's stock kernel source, and add CONFIG_IDEAL_INIT=y to your defconfig
 
 3. Now that you have made the changes to your kernel source, compile the kernel
 
