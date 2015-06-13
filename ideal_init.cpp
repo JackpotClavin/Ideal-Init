@@ -29,6 +29,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "ideal_init.h"
 
@@ -109,10 +110,14 @@ std::string standardize_string(std::string in, int syscall) {
 void get_symlink_from_file(std::string file) {
 
     const std::string ADB_START = "adb shell su -c \"readlink -f";
-    char buf[256];
+    char buf[256] = {0};
     char *p;
+    static int device_plugged = 1;
     std::string cmd;
     FILE *fp;
+
+    if (device_plugged == 0)
+        return;
 
     if (taken_symlinks.find(file) != taken_symlinks.end()) {
         //std::cout << "skip repeat " << file << std::endl;
@@ -147,6 +152,14 @@ void get_symlink_from_file(std::string file) {
     }
 
     std::string buf_to_string(buf);
+
+    if (buf_to_string.length() == 0) {
+        device_plugged = 0;
+        std::cout << "Device not plugged in! Aborting symlink generation." << std::endl;
+        pclose(fp);
+        sleep(3);
+        return;
+    }
 
     // case where the file doesn't exist
     if (buf_to_string.find("readlink:") != std::string::npos) {
@@ -732,6 +745,7 @@ int main(int argc, char **argv) {
 
     generate_device_registry(true);
 
+    std::cout << "Generating symlink table, please wait..." << std::endl;
     generate_device_registry(false);
 
     read_ideal_init_file();
