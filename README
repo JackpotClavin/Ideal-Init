@@ -79,3 +79,34 @@ Instructions:
 18. Run the program ideal_init and it should print out a viable working
     init.<device>.rc which is a fantastic starting point for porting ROMs
     to your device
+
+What CAN'T this program do/log/catch? It cannot log when variables are exported
+using the 'export' by init.rc scripts, so things like:
+'export EXTERNAL_STORAGE /storage/emulated/legacy' must be done manually by the
+developer, and must be placed in the proper init trigger. It also cannot catch
+the 'restorecon' keyword, so those must be added manually. It also cannot catch
+triggers set by property changes, so things like:
+
+on property:init.svc.wpa_supplicant=stopped
+    stop dhcpcd
+
+must be added manually. Another thing to mention is that a setprop command made
+by an init script should be verified that it's in the correct section of the
+init file. Due to setprop not being a system call, we must use a userspace
+program to spy on whether a setprop command has been issued; so this program
+may say that a certain property was set in the 'boot' part of the init
+process, but in reality it was actually set by in 'early-boot' section of the
+init process, but by the time the process scheduler ran the prop_watch program
+to spy on whether a property was set, it may appear that the change was made in
+'boot' because the kernel has higher priority than userspace programs.
+
+To sum up what Ideal Init cannot do:
+1. You must manually add exported variables becuase 'export' is not a syscall
+
+2. You must manually add restorecons because 'restorecon' is not a syscall
+
+3. You must manually add triggers because those are not syscalls
+
+4. You should verify in your device's ramdisk that when a setprop is made in
+   a certain section of the init script, it is properly reflected in the
+   Ideal Init output that it's in the correct section
