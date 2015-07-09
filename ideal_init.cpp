@@ -608,33 +608,33 @@ void parse_line(std::string in) {
             }
             break;
         case WRITE:
-                parts.at(0) = get_link_mate(parts.at(0));
-                generate_and_check(WRITE, 2, parts.at(0).c_str(), parts.at(1).c_str());
+            parts.at(0) = get_link_mate(parts.at(0));
+            generate_and_check(WRITE, 2, parts.at(0).c_str(), parts.at(1).c_str());
             break;
         case SYMLINK:
-                generate_and_check(SYMLINK, 2, parts.at(0).c_str(), parts.at(1).c_str());
+            generate_and_check(SYMLINK, 2, parts.at(0).c_str(), parts.at(1).c_str());
             break;
         case MOUNT:
-                // we will pass the entire mount argument to the generate_and_check function, even though
-                // we say it has only 3 arguments, the 4th will be used to generate the flags.
-                generate_and_check(MOUNT, 3, parts.at(2).c_str(), parts.at(0).c_str(), parts.at(1).c_str(), in.c_str());
+            // we will pass the entire mount argument to the generate_and_check function, even though
+            // we say it has only 3 arguments, the 4th will be used to generate the flags.
+            generate_and_check(MOUNT, 3, parts.at(2).c_str(), parts.at(0).c_str(), parts.at(1).c_str(), in.c_str());
             break;
         case SETRLIMIT:
-                generate_and_check(SETRLIMIT, 3, parts.at(0).c_str(), parts.at(1).c_str(), parts.at(2).c_str());
+            generate_and_check(SETRLIMIT, 3, parts.at(0).c_str(), parts.at(1).c_str(), parts.at(2).c_str());
             break;
         case SETPROP:
-                // the setprop case has two purposes. this one here is to see if setprop was called by the default
-                // init scripts.
-                generate_and_check(SETPROP, 1, parts.at(0).c_str(), parts.at(1).c_str());
+            // the setprop case has two purposes. this one here is to see if setprop was called by the default
+            // init scripts.
+            generate_and_check(SETPROP, 1, parts.at(0).c_str(), parts.at(1).c_str());
 
-                // the other case is that property set was 'init.svc.vold running'. we can use the information
-                // that a service has been set to running to add it to our init.<device>.rc file (if the service
-                // is not a default one defined in the default init.rc)
-                if (parts.at(0).find(II_SERVICE_DECLARED) != parts.at(0).npos && parts.at(1).compare(II_SERVICE_RUNNING) == 0) {
-                    //std::cout << parts.at(0) << " " << parts.at(1) << std::endl;
-                    generate_services(parts.at(0).substr(II_SERVICE_DECLARED.length()));
-                }
-                break;
+            // the other case is that property set was 'init.svc.vold running'. we can use the information
+            // that a service has been set to running to add it to our init.<device>.rc file (if the service
+            // is not a default one defined in the default init.rc)
+            if (parts.at(0).find(II_SERVICE_DECLARED) != parts.at(0).npos && parts.at(1).compare(II_SERVICE_RUNNING) == 0) {
+                //std::cout << parts.at(0) << " " << parts.at(1) << std::endl;
+                generate_services(parts.at(0).substr(II_SERVICE_DECLARED.length()));
+            }
+            break;
         default:
             std::cout << "??" << std::endl;
     }
